@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.psthelyblog.gpu-undervolt",
+  "name": "GPU Undervolt",
+  "version": "0.1.0",
+  "author": "Philippe Sthely",
+  "license": "MIT",
+  "description": "Live GPU metrics, Stock and Efficiency profiles, and an automatic undervolt tuner for your card, built on LACT.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "GPU Undervolt",
+    "description": "Live GPU metrics with Stock and Efficiency profiles.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showPower": true
+    },
+    "schema": [
+      {
+        "key": "showPower",
+        "type": "boolean",
+        "label": "Show live power draw in the bar",
+        "defaultValue": true
+      }
+    ]
+  }
+}
