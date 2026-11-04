@@ -519,12 +519,28 @@ function stepDown(tuned) {
   return next
 }
 
-// Output of the previous-boot check in Service.qml. A clean shutdown logs its
-// target; a hard freeze cannot, so a missing marker means the session died.
-function previousBootHealthy(text) {
+// The active-boot file reads "<boot id> <ms>" while a tuned profile is applied.
+// The time is when that boot's GPU errors stopped being handled live: errors up to
+// then came before the profile was applied, or were already stepped down for.
+// An older file holds only the boot id, so every error in that boot counts.
+function parseActiveBoot(text) {
+  var parts = String(text || "").trim().split(/\s+/)
+  var since = Number(parts[1])
+  return { bootId: parts[0] || "", since: since > 0 ? since : null }
+}
+
+// Output of the previous-boot check in Service.qml, as journalctl short-unix lines.
+// A clean shutdown logs its target; a hard freeze cannot, so a missing marker means
+// the session died. A GPU error counts unless it is known to be from before `since`.
+function previousBootHealthy(text, since) {
   var log = String(text)
   if (log.indexOf("no-previous-boot") !== -1) return true
-  if (log.indexOf("NVRM: Xid") !== -1) return false
+  var lines = log.split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    if (lines[i].indexOf("NVRM: Xid") === -1) continue
+    var stamp = lines[i].match(/^(\d+(?:\.\d+)?)\s/)
+    if (!since || !stamp || Number(stamp[1]) * 1000 > since) return false
+  }
   return log.indexOf("Reached target Shutdown") !== -1
 }
 

@@ -138,11 +138,12 @@ Stock is the only state saved to disk. Efficiency is applied with LACT's
 | LACT restarts | Plugin re-applies Efficiency once it reconnects |
 | Crash during a tuner step | That step counts as failed; the last good step minus 30 MHz is kept and flagged as not soak-tested |
 | GPU error (Xid) while tuned | Undervolt drops 15 MHz and you get a notification |
-| Session ended badly while tuned | Same, before anything is applied at the next login |
+| Session ended badly while tuned, or a GPU error the plugin did not see | Same, before anything is applied at the next login |
 
 Any Xid counts, including ones caused by a buggy app. That can cost a little
-efficiency, but it never makes the undervolt more aggressive. A game crash that
-logs no Xid is not noticed.
+efficiency, but it never makes the undervolt more aggressive. Each error counts
+once: the login check skips errors the plugin already stepped down for. A game
+crash that logs no Xid is not noticed.
 
 Your choice is kept in `~/.local/state/gpu-undervolt/`. **Do not edit LACT profiles
 during a hold**: any LACT config save writes the held profile to disk, which removes

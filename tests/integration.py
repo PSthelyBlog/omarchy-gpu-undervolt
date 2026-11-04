@@ -264,20 +264,29 @@ def tuner_flow(h, state_file):
     assert "Tuned to +30 MHz" in h.notifications()
     print("ok   result saved with its measured cost:", saved["capMhz"], "MHz")
     boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    assert (h.state_dir / "gpu-undervolt/active-boot").read_text().strip() == boot_id
+    active_boot = h.state_dir / "gpu-undervolt/active-boot"
+    assert active_boot.read_text().split()[0] == boot_id
     print("ok   the tuned hold records the boot it is live in")
 
+    xid_at = time.time()
     (h.fake_dir / "kernel.log").open("a").write("NVRM: Xid (PCI:0000:01:00): 13\n")
     h.wait("a GPU error in normal use steps the undervolt down", lambda s: s.get("tunedOffset") == 15)
     h.wait("the lowered profile is applied", lambda s: tuned_label(s) and idle(s))
     assert h.tuned()["capMhz"] == saved["capMhz"] - 15
     assert "Lowered to +15" in h.notifications()
+    since = int(active_boot.read_text().split()[1])
+    assert since > xid_at * 1000, "the error just handled must be marked as handled"
+    print("ok   the handled error is recorded for the next login")
 
-    (h.fake_dir / "previous-boot").write_text("Reached target Shutdown.\n")
-    (h.state_dir / "gpu-undervolt/active-boot").write_text("some-earlier-boot\n")
+    # That same error, found in the previous boot's log at the next login.
+    (h.fake_dir / "previous-boot").write_text(
+        f"{xid_at:.6f} B550 kernel: NVRM: Xid (PCI:0000:01:00): 13\n"
+        f"{xid_at + 60:.6f} B550 systemd[1]: Reached target Shutdown.\n")
+    active_boot.write_text(f"some-earlier-boot {since}\n")
     h.stop_shell()
     h.start_shell()
-    h.wait("a clean previous boot changes nothing", lambda s: s.get("healthChecked") and tuned_label(s))
+    h.wait("a clean previous boot whose error was already handled changes nothing",
+           lambda s: s.get("healthChecked") and tuned_label(s))
     assert h.state["tunedOffset"] == 15, h.state
 
     (h.fake_dir / "previous-boot").write_text("")

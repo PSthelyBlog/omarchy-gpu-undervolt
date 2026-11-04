@@ -387,6 +387,30 @@ test("previousBootHealthy treats a missing shutdown as a crash", () => {
   assert.equal(Model.previousBootHealthy("no-previous-boot"), true)
 })
 
+// The real log from a boot where one Xid burst was stepped down for live, then
+// stepped down for again at the next login.
+const handledBoot = [
+  "1793780380.771139 B550 kernel: NVRM: Xid (PCI:0000:01:00): 13, Graphics Exception: SKEDCHECK06_REGISTER_COUNT failed",
+  "1793780380.771227 B550 kernel: NVRM: Xid (PCI:0000:01:00): 13, pid=47877, name=GameThread, Graphics Exception: channel 0x00000029",
+  "1793780491.014818 B550 systemd[1145]: Reached target Shutdown.",
+].join("\n")
+
+test("previousBootHealthy does not count a GPU error again once it was handled live", () => {
+  assert.equal(Model.previousBootHealthy(handledBoot, 1793780380900), true)
+  assert.equal(Model.previousBootHealthy(handledBoot, 1793780380000), false, "an error after the handled time still counts")
+  assert.equal(Model.previousBootHealthy(handledBoot, null), false, "an old file without a time counts every error")
+  assert.equal(Model.previousBootHealthy("NVRM: Xid (PCI:0000:01:00): 13\nReached target Shutdown.", 1793780380900), false,
+    "an error with no readable time counts")
+  assert.equal(Model.previousBootHealthy("1793780380.771139 B550 kernel: NVRM: Xid (PCI:0000:01:00): 13", 1793780380900), false,
+    "a handled error does not excuse a missing shutdown")
+})
+
+test("parseActiveBoot reads the boot id and the handled-until time", () => {
+  assert.deepEqual(plain(Model.parseActiveBoot("3a0d4096-6e76 1793780380900\n")), { bootId: "3a0d4096-6e76", since: 1793780380900 })
+  assert.deepEqual(plain(Model.parseActiveBoot("3a0d4096-6e76\n")), { bootId: "3a0d4096-6e76", since: null })
+  assert.deepEqual(plain(Model.parseActiveBoot("")), { bootId: "", since: null })
+})
+
 test("tunedSummary reports the measured cost, or just the point without one", () => {
   const tuned = {
     capMhz: 2655, targetMv: 990,

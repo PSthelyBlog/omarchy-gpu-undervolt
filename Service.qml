@@ -163,7 +163,7 @@ Item {
   function checkPreviousBoot() {
     if (healthStarted) return
     healthStarted = true
-    var active = activeBootFile.text().trim()
+    var active = Model.parseActiveBoot(activeBootFile.text()).bootId
     if (active === "" || active === bootIdFile.text().trim()) {
       healthChecked = true
       return
@@ -172,15 +172,26 @@ Item {
   }
 
   function onBootChecked(text) {
+    var since = Model.parseActiveBoot(activeBootFile.text()).since
     activeBootFile.setText("")
     healthChecked = true
-    if (!Model.previousBootHealthy(text)) stepDownTuned("The last session ended badly while tuned.")
+    if (!Model.previousBootHealthy(text, since)) stepDownTuned("The last session ended badly while tuned.")
     reconcile()
   }
 
   function onGpuError() {
     if (tuning) stepErrors++
-    else if (appliedTuned) stepDownTuned("A GPU error was logged while tuned.")
+    else if (appliedTuned) {
+      stepDownTuned("A GPU error was logged while tuned.")
+      // Handled, so the check at the next login must not step down for it again.
+      markTunedLive()
+    }
+  }
+
+  // Records that a tuned profile is live in this boot, and that GPU errors up to
+  // now have been handled. Read back by checkPreviousBoot() at the next login.
+  function markTunedLive() {
+    activeBootFile.setText(bootIdFile.text().trim() + " " + Date.now() + "\n")
   }
 
   function stepDownTuned(message) {
@@ -392,7 +403,7 @@ Item {
       appliedKey = Model.configKey(pendingPlan.config)
       appliedLabel = pendingPlan.label
       appliedTuned = pendingPlan.tuned === true && !tuning
-      if (appliedTuned) activeBootFile.setText(bootIdFile.text().trim() + "\n")
+      if (appliedTuned) markTunedLive()
       endWork()
       finishApply(true)
       poll()
@@ -536,7 +547,7 @@ Item {
 
   Process {
     id: bootCheck
-    command: ["bash", "-c", "journalctl -b -1 -n 1 -q -o cat >/dev/null 2>&1 || { echo no-previous-boot; exit 0; }; journalctl -b -1 -o cat --no-pager -g 'NVRM: Xid|^Reached target Shutdown\\.$'; true"]
+    command: ["bash", "-c", "journalctl -b -1 -n 1 -q -o cat >/dev/null 2>&1 || { echo no-previous-boot; exit 0; }; journalctl -b -1 -o short-unix --no-pager -g 'NVRM: Xid|^Reached target Shutdown\\.$'; true"]
 
     stdout: StdioCollector {
       waitForEnd: true
@@ -582,7 +593,7 @@ Item {
   }
 
   // Holds the boot id while a tuned profile is applied, so the next boot knows
-  // whether the tuned profile was live when that session ended.
+  // whether the tuned profile was live when that session ended. See markTunedLive().
   FileView {
     id: activeBootFile
     path: root.stateDir + "/active-boot"
