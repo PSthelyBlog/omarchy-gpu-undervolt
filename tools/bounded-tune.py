@@ -77,7 +77,9 @@ def main():
                         print("error:", state["error"], "| notice:", state["notice"])
                     break
             result = json.loads(tune_file.read_text())
-            print("\nphase", result["phase"], "| reason:", result["reason"] or "none", "| target", result["targetMv"], "mV")
+            knee = result["knees"].get(str(result["offset"]), {})
+            print("\nphase", result["phase"], "| reason:", result["reason"] or "none",
+                  "| kept", knee.get("capMhz"), "MHz at", knee.get("targetMv"), "mV")
             print(f"{'step':>10} {'offset':>7} {'pass':>5} {'score':>8} {'watts':>7} {'MHz':>6} {'mV':>6}  reason")
             for r in result["results"]:
                 print(f"{r['phase']:>10} {r['offset']:>7} {str(r['passed']):>5} {str(r['score']):>8} "

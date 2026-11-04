@@ -30,9 +30,10 @@ var TUNE_STEP_SECONDS = 45
 var TUNE_SOAK_SECONDS = 300
 var TUNE_WARMUP_SAMPLES = 3
 var TUNE_BUSY_PERCENT = 90
-// At a fixed voltage, more clock has to bring more work. If score gains fall below
-// this share of the clock gain, the silicon is stretching clocks and has run out.
-var TUNE_PERFORMANCE_FLOOR = 0.5
+// Work per MHz is constant while the clock is real. When the silicon runs out of
+// margin it stretches clocks: the reported clock holds but the work falls. Score per
+// MHz varied by about 0.4% between steps on the RTX 4070, so 1% is past the noise.
+var TUNE_WORK_DROP = 0.01
 var ICON_GPU = String.fromCodePoint(0xF08AE)
 var ICON_STOCK = String.fromCodePoint(0xF04C5)
 var ICON_EFFICIENCY = String.fromCodePoint(0xF032A)
@@ -348,21 +349,51 @@ function tunedUsable(tuned, gpuId, print) {
   return !!tuned && tuned.gpuId === gpuId && tuned.fingerprint === print
 }
 
+// Where Efficiency runs once the curve gains `offset` MHz: the knee rule of the
+// untuned clock cap, applied to the tuned curve. A larger margin moves the knee to a
+// higher clock and a lower voltage, so it buys both speed and power, not just one.
+function kneeFor(points, offset) {
+  var shifted = points.map(function(p) {
+    return { index: p.index, base_voltage: p.base_voltage, base_freq: p.base_freq + offset }
+  })
+  var knee = efficientPoint(shifted)
+  return knee ? { targetMv: knee.base_voltage, capMhz: knee.base_freq } : null
+}
+
+// The operating point a step at this offset runs at, from the table built at start.
+function kneeAt(tune, offset) {
+  var knee = tune.knees ? tune.knees[String(offset)] : null
+  if (knee) return knee
+  // Runs saved before the knee tuner held the stock curve's knee voltage throughout.
+  return { targetMv: tune.targetMv, capMhz: tune.baseClock + offset }
+}
+
+function kneeText(knee) {
+  return knee.capMhz + " MHz at " + knee.targetMv + " mV"
+}
+
+// Every offset the run can reach or keep is in the table, so a crash can be
+// recovered before the curve has been read.
 function tunerStart(points, gpuId, print, limits) {
-  var target = efficientPoint(points)
-  if (!target) return null
+  if (!efficientPoint(points)) return null
+  var knees = {}
+  for (var offset = 0; offset <= limits.maxOffset; offset += CLOCK_STEP_MHZ) {
+    var knee = kneeFor(points, offset)
+    if (!knee) break
+    knees[String(offset)] = knee
+  }
   return {
     running: false,
     phase: "baseline",
     gpuId: gpuId,
     fingerprint: print,
-    targetMv: target.base_voltage,
-    baseClock: target.base_freq,
+    knees: knees,
     offset: 0,
     lastGood: null,
     failedAt: null,
     baseline: null,
     best: null,
+    topWork: null,
     final: null,
     reason: "",
     unverified: false,
@@ -372,9 +403,8 @@ function tunerStart(points, gpuId, print, limits) {
 }
 
 function tuneStepPlan(tune, clocks) {
-  var cap = tune.baseClock + tune.offset
-  return undervoltPlan(clocks.points, clocks.minClock, tune.targetMv, tune.offset, cap,
-    cap + " MHz at " + tune.targetMv + " mV")
+  var knee = kneeAt(tune, tune.offset)
+  return undervoltPlan(clocks.points, clocks.minClock, knee.targetMv, tune.offset, knee.capMhz, kneeText(knee))
 }
 
 function parseScore(line) {
@@ -410,13 +440,8 @@ function judgeStep(tune, result) {
   if (result.exitCode !== 0) return { passed: false, reason: "Stress load failed" }
   if (result.score === null) return { passed: false, reason: "Stress load gave no result" }
   if (result.samples < Math.floor(tune.limits.stepSeconds / 2)) return { passed: false, reason: "GPU was not fully loaded" }
-  var previous = tune.best
-  if (tune.phase === "climb" && previous && previous.score && previous.mhz && result.mhz) {
-    var clockGain = result.mhz / previous.mhz - 1
-    var scoreGain = result.score / previous.score - 1
-    if (clockGain > 0.002 && scoreGain < clockGain * TUNE_PERFORMANCE_FLOOR) {
-      return { passed: false, reason: "Performance stopped rising" }
-    }
+  if (tune.phase === "climb" && tune.topWork && result.mhz && result.score / result.mhz < tune.topWork * (1 - TUNE_WORK_DROP)) {
+    return { passed: false, reason: "Performance fell behind the clock" }
   }
   return { passed: true, reason: "" }
 }
@@ -453,8 +478,10 @@ function tunerAdvance(tune, result) {
     if (verdict.passed) {
       next.lastGood = tune.offset
       next.best = result
-      if (tune.offset + TUNE_STEP_MHZ > tune.limits.maxOffset) return tuneToSoak(next)
-      next.offset = tune.offset + TUNE_STEP_MHZ
+      if (result.mhz) next.topWork = Math.max(tune.topWork || 0, result.score / result.mhz)
+      var further = tune.offset + TUNE_STEP_MHZ
+      if (further > tune.limits.maxOffset || (tune.knees && !tune.knees[String(further)])) return tuneToSoak(next)
+      next.offset = further
       return next
     }
     next.failedAt = tune.offset
@@ -493,15 +520,15 @@ function tunerRecover(tune) {
 }
 
 function tunedResult(tune, savedAt) {
-  var capMhz = tune.baseClock + tune.offset
+  var knee = kneeAt(tune, tune.offset)
   var pick = function(step) { return step ? { score: step.score, watts: step.watts } : null }
   return {
     gpuId: tune.gpuId,
     fingerprint: tune.fingerprint,
-    targetMv: tune.targetMv,
-    baseClock: tune.baseClock,
+    targetMv: knee.targetMv,
+    baseClock: knee.capMhz - tune.offset,
     offset: tune.offset,
-    capMhz: capMhz,
+    capMhz: knee.capMhz,
     baseline: pick(tune.baseline),
     tuned: pick(tune.final),
     unverified: tune.unverified === true,
@@ -550,7 +577,7 @@ function signedPercent(value) {
 }
 
 function tunedSummary(tuned) {
-  var head = tuned.capMhz + " MHz at " + tuned.targetMv + " mV"
+  var head = kneeText(tuned)
   if (!tuned.baseline || !tuned.tuned || !tuned.baseline.watts || !tuned.baseline.score) return head
   var power = 100 * (tuned.tuned.watts / tuned.baseline.watts - 1)
   var speed = 100 * (tuned.tuned.score / tuned.baseline.score - 1)
@@ -560,8 +587,8 @@ function tunedSummary(tuned) {
 function tuneStepLabel(tune) {
   if (!tune) return ""
   if (tune.phase === "baseline") return "Measuring stock"
-  if (tune.phase === "soak") return "Soak test at +" + tune.offset + " MHz"
-  if (tune.phase === "climb") return "Testing +" + tune.offset + " MHz"
+  if (tune.phase === "soak") return "Soak test at " + kneeText(kneeAt(tune, tune.offset))
+  if (tune.phase === "climb") return "Testing " + kneeText(kneeAt(tune, tune.offset))
   return ""
 }
 
@@ -572,7 +599,12 @@ function tuneOutcome(tune) {
       : "Tuning stopped: " + tune.reason + ". Efficiency keeps its safe clock cap."
   }
   if (tune.unverified) {
-    return "Tuning crashed at +" + tune.failedAt + " MHz. Kept +" + tune.offset + " MHz, without a soak test. Re-tune to verify it."
+    return "Tuning crashed at " + kneeText(kneeAt(tune, tune.failedAt)) + ". Kept " + kneeText(kneeAt(tune, tune.offset)) +
+      ", without a soak test. Re-tune to verify it."
   }
-  return "Tuned to +" + tune.offset + " MHz."
+  return "Tuned to " + kneeText(kneeAt(tune, tune.offset)) + "."
+}
+
+function stepDownNotice(tuned) {
+  return "Lowered to " + kneeText(tuned) + "."
 }

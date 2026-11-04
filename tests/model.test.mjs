@@ -217,11 +217,36 @@ test("isMonotonic catches a curve that steps down", () => {
   assert.equal(Model.isMonotonic(curve, shaped), false)
 })
 
-test("tunerStart targets the efficient point and needs a curve", () => {
+test("tunerStart starts at the untuned clock cap's knee and needs a curve", () => {
   const tune = start()
   assert.equal(tune.phase, "baseline")
-  assert.equal(tune.targetMv, Model.efficientPoint(curve).base_voltage)
+  const knee = Model.efficientPoint(curve)
+  assert.deepEqual(plain(tune.knees["0"]), { targetMv: knee.base_voltage, capMhz: knee.base_freq })
   assert.equal(Model.tunerStart([], "gpu", "print", LIMITS), null)
+})
+
+// Where each offset runs on this card: the knee of the curve shifted by the offset.
+const reachedAt = (plan) => {
+  const shaped = plan.config.nvidia_gpu_vf_curve || {}
+  const offsetOf = (p) => (shaped[p.index] ? shaped[p.index].clockspeed_offset : 0)
+  return curve.find((p) => p.base_freq + offsetOf(p) >= plan.config.max_core_clock).base_voltage
+}
+
+test("as the margin grows, the knee moves to a lower voltage and then climbs in clock", () => {
+  const t = start()
+  const at = (offset) => `${t.knees[offset].capMhz}@${t.knees[offset].targetMv}`
+  assert.equal(at(0), "2595@990")
+  assert.equal(at(30), "2565@965")
+  assert.equal(at(180), "2715@965", "stock speed under the stress load, 115 mV lower")
+  assert.equal(at(210), "2745@965")
+  assert.equal(at(240), "2775@965")
+  assert.equal(Object.keys(t.knees).length, 17, "every 15 MHz step up to the limit, for step-downs and recovery")
+  for (let offset = 0; offset <= 240; offset += 30) {
+    const plan = Model.tuneStepPlan({ ...t, offset }, { points: curve, minClock: 210 })
+    assert.ok(Model.isMonotonic(curve, plan.config.nvidia_gpu_vf_curve || {}), `+${offset}`)
+    assert.equal(plan.config.max_core_clock, t.knees[offset].capMhz)
+    assert.equal(reachedAt(plan), t.knees[offset].targetMv, `+${offset} reaches its cap first at the knee`)
+  }
 })
 
 test("tuner climbs, backs off by the margin after a failure, then soaks and finishes", () => {
@@ -243,7 +268,9 @@ test("tuner climbs, backs off by the margin after a failure, then soaks and fini
   assert.equal(t.phase, "done")
   const saved = Model.tunedResult(t, "now")
   assert.equal(saved.offset, 30)
-  assert.equal(saved.capMhz, t.baseClock + 30)
+  assert.equal(saved.capMhz, t.knees["30"].capMhz)
+  assert.equal(saved.targetMv, t.knees["30"].targetMv)
+  assert.equal(saved.baseClock, saved.capMhz - 30, "the stock clock at the target voltage")
   assert.equal(saved.unverified, false)
 })
 
@@ -277,8 +304,30 @@ test("clock stretching ends the climb: clock rose but work did not", () => {
   t = Model.tunerAdvance(t, pass(2625, 505000))
   assert.equal(t.phase, "climb")
   t = Model.tunerAdvance(t, pass(2655, 505200))
-  assert.equal(t.reason, "Performance stopped rising")
+  assert.equal(t.reason, "Performance fell behind the clock")
   assert.equal(t.phase, "soak")
+})
+
+test("a lower voltage at the same clock fails when work per MHz falls", () => {
+  let t = Model.tunerAdvance(Model.tunerAdvance(start(), pass(2720, 596207)), pass(2595, 572000))
+  t = Model.tunerAdvance(t, pass(2565, 566000)) // +30: lower clock, same work per MHz
+  t = Model.tunerAdvance(t, pass(2595, 568000)) // +60: -0.7% per MHz from the best, noise
+  assert.equal(t.phase, "climb")
+  t = Model.tunerAdvance(t, pass(2625, 568000)) // +90: -1.9%, a stretched clock
+  assert.equal(t.reason, "Performance fell behind the clock")
+  assert.equal(t.lastGood, 60)
+})
+
+test("a run saved before the knee tuner recovers at the voltage it was tested at", () => {
+  const legacy = {
+    running: true, phase: "climb", gpuId: "gpu", fingerprint: "print", targetMv: 995, baseClock: 2610,
+    offset: 90, lastGood: 60, failedAt: null, baseline: null, best: null, final: null, reason: "",
+    unverified: false, limits: LIMITS, results: [],
+  }
+  const saved = Model.tunedResult(Model.tunerRecover(legacy), "now")
+  assert.equal(saved.offset, 30)
+  assert.equal(saved.capMhz, 2640)
+  assert.equal(saved.targetMv, 995)
 })
 
 test("failing at the clock cap itself stops without claiming a result", () => {
@@ -420,8 +469,11 @@ test("tunedSummary reports the measured cost, or just the point without one", ()
   assert.equal(Model.tunedSummary({ capMhz: 2655, targetMv: 990, baseline: null, tuned: null }), "2655 MHz at 990 mV")
 })
 
-test("tuneOutcome tells the user what happened", () => {
+test("tuneOutcome tells the user what happened, in clock and voltage", () => {
   assert.match(Model.tuneOutcome({ phase: "stopped", reason: "Crash" }), /crash/)
-  assert.match(Model.tuneOutcome({ phase: "done", unverified: true, failedAt: 90, offset: 30 }), /\+90 MHz.*\+30 MHz/)
-  assert.equal(Model.tuneOutcome({ phase: "done", offset: 60 }), "Tuned to +60 MHz.")
+  assert.equal(Model.tuneOutcome({ ...start(), phase: "done", unverified: true, failedAt: 90, offset: 30 }),
+    "Tuning crashed at 2625 MHz at 965 mV. Kept 2565 MHz at 965 mV, without a soak test. Re-tune to verify it.")
+  assert.equal(Model.tuneOutcome({ ...start(), phase: "done", offset: 210 }), "Tuned to 2745 MHz at 965 mV.")
+  assert.equal(Model.tuneStepLabel({ ...start(), phase: "climb", offset: 60 }), "Testing 2595 MHz at 965 mV")
+  assert.equal(Model.stepDownNotice({ capMhz: 2730, targetMv: 965 }), "Lowered to 2730 MHz at 965 mV.")
 })

@@ -105,7 +105,7 @@ Efficiency has three levels, and uses the best one available:
 
 | Level | What it does | Risk |
 |---|---|---|
-| Tuned | Clock cap, plus curve offsets that reach it at a lower voltage | Tested on your card by the tuner |
+| Tuned | The same rule on your card's tuned curve, which reaches each clock at a lower voltage | Tested on your card by the tuner |
 | Clock cap | Stops climbing the stock VF curve where it stops being worth the power | None, this is the stock curve |
 | Power cap | 75% of the default limit, for GPUs with no VF curve | None, but only acts above the cap |
 
@@ -118,11 +118,16 @@ update, Efficiency falls back to the clock cap until you re-tune.
 ### The tuner
 
 1. Measures stock, to report the real cost of the result.
-2. Starts at the clock cap, then climbs 30 MHz at a time at the same voltage. Each
-   step runs 45 seconds of `stress.ts`, a headless compute load that reaches the
-   200 W limit and alternates sustained load with bursts.
-3. Stops at the first GPU error, failed load, or step where the clock rises but
-   the work done does not. It also stops at +240 MHz.
+2. Raises the curve offset 30 MHz at a time. Each step runs at the knee of the
+   tuned curve: the clock cap's rule, applied to the stock curve plus the offset.
+   As the margin grows, the knee moves to a lower voltage and a higher clock, so
+   the margin buys less power and more speed together, and each step tests the
+   exact clock and voltage it would keep. Each step runs 45 seconds of
+   `stress.ts`, a headless compute load that reaches the 200 W limit and
+   alternates sustained load with bursts.
+3. Stops at the first GPU error, failed load, or step where the work done per MHz
+   falls more than 1% below the best step: the clock still reads as set, but the
+   silicon is stretching it. It also stops at +240 MHz.
 4. Backs off 30 MHz and runs a 5 minute soak, dropping further if that fails.
 
 ### Crash safety
@@ -172,9 +177,11 @@ GPU errors:
 The saved result beats stock on both counts: +4% speed for -16% power. It idles
 normally too, at 13 W in P8.
 
-The tuner only raises clock at a fixed voltage, so it spent this card's margin on
-speed. Lowering the voltage instead would likely save more power at stock speed,
-but that has not been built or measured.
+This run is from the first tuner, which held the stock curve's knee voltage and
+spent the whole margin on clock, past the point where clock was worth its power.
+The tuner now runs at the knee of the tuned curve. On this card that is 965 mV at
+every offset, so if the same margin held there, +210 MHz would run at 2745 MHz:
+about stock speed. That has not been measured yet.
 
 Earlier runs used `vkmark`, whose heaviest GPU-bound scene peaks near 140 W. There,
 a 150 W power cap saved nothing, which is why Efficiency is now a clock cap. These

@@ -261,7 +261,7 @@ def tuner_flow(h, state_file):
     assert saved["offset"] == 30 and not saved["unverified"], saved
     assert saved["baseline"]["score"] == 100000 and saved["tuned"]["score"] == 96000, saved
     assert state_file.read_text().strip() == "efficiency"
-    assert "Tuned to +30 MHz" in h.notifications()
+    assert "Tuned to 2565 MHz at 965 mV" in h.notifications(), h.notifications()
     print("ok   result saved with its measured cost:", saved["capMhz"], "MHz")
     boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
     active_boot = h.state_dir / "gpu-undervolt/active-boot"
@@ -273,7 +273,7 @@ def tuner_flow(h, state_file):
     h.wait("a GPU error in normal use steps the undervolt down", lambda s: s.get("tunedOffset") == 15)
     h.wait("the lowered profile is applied", lambda s: tuned_label(s) and idle(s))
     assert h.tuned()["capMhz"] == saved["capMhz"] - 15
-    assert "Lowered to +15" in h.notifications()
+    assert "Lowered to 2550 MHz at 965 mV" in h.notifications(), h.notifications()
     since = int(active_boot.read_text().split()[1])
     assert since > xid_at * 1000, "the error just handled must be marked as handled"
     print("ok   the handled error is recorded for the next login")
@@ -318,7 +318,7 @@ def tuner_flow(h, state_file):
     (h.fake_dir / "load").unlink(missing_ok=True)
 
     h.start_shell()
-    h.wait("the crashed step is recognised at next start", lambda s: "crashed at +90" in s.get("notice", ""))
+    h.wait("the crashed step is recognised at next start", lambda s: "crashed at 2625 MHz at 965 mV" in s.get("notice", ""))
     recovered = h.tuned()
     assert recovered["offset"] == 30 and recovered["unverified"], recovered
     print("ok   keeps the last good step minus the margin, flagged as not soak-tested")

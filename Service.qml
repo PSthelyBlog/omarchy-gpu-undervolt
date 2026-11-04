@@ -199,7 +199,7 @@ Item {
     if (Date.now() - lastStepDownAt < 60000) return
     lastStepDownAt = Date.now()
     saveTuned(Model.stepDown(tuned))
-    notice = message + " Lowered to +" + tuned.offset + " MHz."
+    notice = message + " " + Model.stepDownNotice(tuned)
     notify(notice, "critical")
     reconcile()
   }
