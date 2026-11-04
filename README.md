@@ -91,9 +91,10 @@ imports and needs no network access.
 | NVIDIA RTX 4070, driver 615.78.08 | Yes | Yes | Yes |
 | AMD, Intel, hybrid laptops | Untested | Untested | Untested |
 
-That RTX 4070 passed every step up to the tuner's +240 MHz ceiling, so its real limit
-is unknown and no step has ever failed on real hardware. The error paths were tested
-with injected faults, not a real GPU hang.
+That RTX 4070 passed every step up to the tuner's +240 MHz ceiling in both full runs,
+at 1000 mV and at 975 mV, so its real limit is unknown and no tuner step has ever
+failed on real hardware. The error paths were tested with injected faults, not a
+real GPU hang.
 
 ## How it works
 
@@ -160,42 +161,51 @@ To recover manually, add `lact-reset` to the kernel command line for one boot.
 
 ## Results
 
-RTX 4070, driver 615.78.08, LACT 0.10.1, 2026-11-02, on `stress.ts`, which draws
+RTX 4070, driver 615.78.08, LACT 0.10.1, 2026-11-04, on `stress.ts`, which draws
 about 200 W at stock. A full tuner run, with 45 second steps, a 5 minute soak and no
 GPU errors:
 
 | Step | Score | Watts | MHz | mV |
 |---|---|---|---|---|
-| Stock | 596,207 | 192.9 | 2721 | 1080 |
-| Clock cap | 569,154 | 149.1 | 2576 | 995 |
-| +60 MHz | 584,104 | 157.2 | 2670 | 1000 |
-| +120 MHz | 600,597 | 158.5 | 2730 | 1000 |
-| +180 MHz | 612,486 | 161.3 | 2790 | 1000 |
-| +240 MHz (tuner ceiling) | 626,043 | 163.8 | 2850 | 1000 |
-| **Saved: +210 MHz, 5 min soak** | 622,070 | 162.3 | 2816 | 1000 |
+| Stock | 601,859 | 196.6 | 2737 | 1085 |
+| +0 MHz (the clock cap) | 572,331 | 154.0 | 2610 | 1000 |
+| +30 MHz | 567,545 | 144.6 | 2580 | 975 |
+| +90 MHz | 579,480 | 146.3 | 2640 | 975 |
+| +150 MHz | 593,203 | 149.0 | 2700 | 975 |
+| +210 MHz | 605,248 | 148.3 | 2757 | 975 |
+| +240 MHz (tuner ceiling) | 612,101 | 149.6 | 2764 | 975 |
+| **Saved: +210 MHz, 5 min soak** | 608,288 | 148.1 | 2735 | 975 |
 
-The saved result beats stock on both counts: +4% speed for -16% power. It idles
-normally too, at 13 W in P8.
+The saved result, a 2760 MHz cap at the 970 mV curve point, runs at stock speed for
+a quarter less power: +1% speed for -25% power. It idles normally too, at 13 W in P8.
+The voltage sensor reads 975 mV at that point.
 
-This run is from the first tuner, which held the stock curve's knee voltage and
-spent the whole margin on clock, past the point where clock was worth its power.
-The tuner now runs at the knee of the tuned curve. On this card that is 965 mV at
-every offset, so if the same margin held there, +210 MHz would run at 2745 MHz:
-about stock speed. That has not been measured yet.
+Any offset moves the knee from 1000 mV down to 975 mV, where it stays, so from +30
+MHz on each step adds clock at the same voltage for about 1 W. In the soak the clock
+averaged below its 2760 MHz cap because the card sheds clock as it warms. Work per
+MHz varied by 1% across the climb and was highest at the top steps, so no clock was
+being stretched.
+
+The first tuner, in the initial release, held the stock curve's knee voltage and
+spent the whole margin on clock. Its full run on 2026-11-02 saved +210 MHz at 1000
+mV, a 2820 MHz cap: +4% speed for -16% power, at 162.3 W against 192.9 W at stock
+that day. The knee result does 7% more work per watt than that one, or 8% when each
+is compared with its own day's stock run.
 
 Earlier runs used `vkmark`, whose heaviest GPU-bound scene peaks near 140 W. There,
 a 150 W power cap saved nothing, which is why Efficiency is now a clock cap. These
 are short runs: they measure efficiency, not long-term stability, and a compute
 load is not a game.
 
-One real game session so far: S.T.A.L.K.E.R. 2 on Proton Experimental at Epic
-settings, 1080p, no frame generation, about an hour under load on the saved +210 MHz
-profile. The GPU sat at the 2820 MHz cap and 1000 mV for 97% of loaded samples, at a
-median of 132 W, a peak of 166 W and a peak core temperature of 71 °C. There were no
-GPU errors, no step-downs and no visual glitches noticed while playing. The game
-segfaulted in Proton's `ntdll.so` while exiting, after it had closed its own log.
-Nothing links that to the GPU, but there is no stock session to compare it with, and
-no stock power figure for this game.
+One real game session so far, on the first tuner's +210 MHz profile: S.T.A.L.K.E.R.
+2 on Proton Experimental at Epic settings, 1080p, no frame generation, about an hour
+under load. The GPU sat at the 2820 MHz cap and 1000 mV for 97% of loaded samples,
+at a median of 132 W, a peak of 166 W and a peak core temperature of 71 °C. There
+were no GPU errors, no step-downs and no visual glitches noticed while playing. The
+game segfaulted in Proton's `ntdll.so` while exiting, after it had closed its own
+log. Nothing links that to the GPU, but there is no stock session to compare it with,
+and no stock power figure for this game. No game has been played on the knee tuner's
+result yet.
 
 ## Development
 
