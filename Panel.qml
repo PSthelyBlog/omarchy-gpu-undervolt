@@ -31,7 +31,6 @@ Panel {
   readonly property bool hasPower: stats !== null && stats.powerNow !== null
   readonly property bool showPower: setting("showPower", true) === true && ready && hasPower && !asleep
   readonly property string barIcon: efficiency ? Model.ICON_EFFICIENCY : Model.ICON_GPU
-  readonly property real openPanelIndicatorWidth: showPower && !button.vertical ? button.glyphPaintedWidth : 0
   readonly property var profiles: [
     { id: "stock", label: "Stock", icon: Model.ICON_STOCK },
     { id: "efficiency", label: "Efficiency", icon: Model.ICON_EFFICIENCY }
@@ -104,7 +103,9 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.showPower && !vertical ? Math.round(root.stats.powerNow) + "W " + root.barIcon : root.barIcon
+    // The shell scales `text` to icon size, so the power reading goes in the label.
+    text: root.barIcon
+    labelText: root.showPower && !vertical ? Math.round(root.stats.powerNow) + "W" : ""
     slotSize: Style.bar.iconSlot * (root.showPower && !vertical ? 2 : 1)
     tooltipText: ""
     onPressed: function(b) {
