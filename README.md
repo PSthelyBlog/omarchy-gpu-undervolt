@@ -36,6 +36,7 @@ packages stay behind, so a reinstall keeps your tuning result. To remove those t
 
 ```bash
 rm -rf ~/.local/state/gpu-undervolt     # profile choice, tuning result and tune slots
+rm -rf ~/.cache/gpu-undervolt           # the CUDA stress load, if it was ever built
 ```
 
 LACT keeps an unused profile named `gpu-undervolt-efficiency`, which you can delete
@@ -64,6 +65,12 @@ sudo pacman -Rns lact deno
 |---|---|---|
 | [LACT](https://github.com/ilya-zlobintsev/LACT) daemon | `lact` (Arch `extra`) | Reading the GPU and applying every setting. Required. |
 | [Deno](https://deno.com) | `deno` (Arch `extra`) | Running the stress load. Only needed for tuning. |
+| [CUDA toolkit](https://developer.nvidia.com/cuda-toolkit) | `cuda` (Arch `extra`) | Tuning an NVIDIA GPU that WebGPU cannot start on. Optional. |
+
+The stress load runs on WebGPU. Only if WebGPU cannot start on your GPU does it
+build `stress.cu`, the same load in CUDA, with `nvcc`, once, into
+`~/.cache/gpu-undervolt`. CUDA 13, the version in Arch, no longer builds for GTX
+10-series and older cards, so those need CUDA 12.9.
 
 The plugin itself runs as your user. Two things run as root:
 
@@ -86,7 +93,8 @@ The plugin itself runs as your user. Two things run as root:
 
 Choosing Efficiency saves one profile, `gpu-undervolt-efficiency`, in LACT's config.
 The plugin changes no other LACT profile. The stress load, `stress.ts`, has no
-imports and needs no network access.
+imports and no network access. Deno lets it read `stress.cu` and its cache, write
+its cache, and run `nvcc` and `setpriv`, which it needs only for the CUDA build.
 
 ## Tested hardware
 
@@ -129,7 +137,8 @@ update, Efficiency falls back to the clock cap until you re-tune.
    the margin buys less power and more speed together, and each step tests the
    exact clock and voltage it would keep. Each step runs 45 seconds of
    `stress.ts`, a headless compute load that reaches the 200 W limit and
-   alternates sustained load with bursts.
+   alternates sustained load with bursts. On an NVIDIA GPU that WebGPU cannot
+   start on, it runs the same load built with CUDA instead.
 3. Stops at the first GPU error, failed load, or step where the work done per MHz
    falls more than 1% below the best step: the clock still reads as set, but the
    silicon is stretching it. It also stops at +240 MHz.
@@ -215,7 +224,7 @@ result yet.
 
 ```bash
 node --test tests/                               # Model.js logic, real RTX 4070 curve
-python3 -m unittest discover -s tests -p 'test_*.py'  # spike curve builder
+python3 -m unittest discover -s tests -p 'test_*.py'  # spike curve builder, CUDA fallback
 python3 tests/integration.py                     # Service.qml end to end, headless, ~3 min
 ```
 
@@ -232,8 +241,8 @@ is not enough: `Service.qml` uses `keepLoaded`, and `Panel.qml` edits stayed sta
 even when the shell logged a reload.
 
 ```bash
-cp manifest.json Service.qml LactClient.qml Panel.qml Model.js stress.ts \
-  ~/.config/omarchy/plugins/io.github.psthelyblog.gpu-undervolt/
+cp manifest.json Service.qml LactClient.qml Panel.qml Model.js SharedService.js \
+  stress.ts stress.cu ~/.config/omarchy/plugins/io.github.psthelyblog.gpu-undervolt/
 omarchy restart shell
 ```
 
@@ -245,6 +254,15 @@ python3 tools/spike.py status                   # read-only
 python3 tools/spike.py hold                     # power cap only
 python3 tools/spike.py curve                    # writes +30 MHz at idle, checks the reset
 python3 tools/spike.py measure                  # needs vkmark
+```
+
+To run the CUDA load on a GPU where WebGPU works, hide WebGPU from it. This builds
+it into the real cache, as a tuner run would:
+
+```bash
+DENO_WEBGPU_BACKEND=dx12 deno run --unstable-webgpu --no-prompt \
+  --allow-read=stress.cu,$HOME/.cache/gpu-undervolt --allow-write=$HOME/.cache/gpu-undervolt \
+  --allow-run=setpriv,nvcc,/opt/cuda/bin/nvcc stress.ts 30 ~/.cache/gpu-undervolt
 ```
 
 ## License
