@@ -420,12 +420,13 @@ Panel {
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            text: "Tune slots: click to apply, right-click to save the current tune"
+            text: "Tune slots: click to apply, right-click to save"
             color: root.bar.foreground
             opacity: 0.6
             font.family: root.bar.fontFamily
             font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
+            // Wraps rather than cutting off the hint with a wider font or a narrower panel.
+            wrapMode: Text.WordWrap
           }
 
           Row {
