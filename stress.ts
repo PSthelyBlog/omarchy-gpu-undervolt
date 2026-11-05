@@ -5,6 +5,37 @@
 // Usage: deno run --unstable-webgpu stress.ts <seconds>
 // Prints "Score: <work units per second>" and exits non-zero on a device fault.
 
+const cudaBinary = new URL("./stress_cuda", import.meta.url).pathname;
+const cudaSource = new URL("./stress.cu", import.meta.url).pathname;
+
+try {
+  let hasBinary = false;
+  try {
+    const stat = await Deno.stat(cudaBinary);
+    hasBinary = stat.isFile;
+  } catch {
+    const nvcc = await new Deno.Command("nvcc", { args: ["--version"] }).output().catch(() => null);
+    if (nvcc && nvcc.success) {
+      const build = await new Deno.Command("nvcc", {
+        args: ["-O3", "-Wno-deprecated-gpu-targets", cudaSource, "-o", cudaBinary],
+      }).output().catch(() => null);
+      hasBinary = !!(build && build.success);
+    }
+  }
+
+  if (hasBinary) {
+    const p = new Deno.Command(cudaBinary, {
+      args: Deno.args,
+      stdout: "inherit",
+      stderr: "inherit",
+    }).spawn();
+    const status = await p.status;
+    Deno.exit(status.code);
+  }
+} catch (_) {
+  // Fall back to WebGPU below
+}
+
 const SHADER = /* wgsl */ `
 @group(0) @binding(0) var<storage, read_write> data: array<vec4<f32>>;
 

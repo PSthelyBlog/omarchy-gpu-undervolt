@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Services.UPower
 import "Model.js" as Model
+import "SharedService.js" as SharedService
 
 // Singleton owner of the GPU state. The bar exists once per monitor, so anything
 // that must happen exactly once (above all, taking the hold) lives here.
@@ -264,7 +265,7 @@ Item {
     notice = ""
     if (!loadToolReady) { lastError = "Tuning needs Deno. Use Set up tuning."; return }
     if (UPower.onBattery) { lastError = "Plug in before tuning."; return }
-    if (stats.loadPercent !== null && stats.loadPercent > 30) { lastError = "Close GPU-heavy apps before tuning."; return }
+    if (stats.loadPercent !== null && stats.loadPercent > 60) { lastError = "Close GPU-heavy apps before tuning."; return }
     tune = Model.tunerStart(clocks.points, gpuId, deviceFingerprint, {
       stepSeconds: stepSeconds, soakSeconds: soakSeconds, maxOffset: maxOffset
     })
@@ -294,7 +295,7 @@ Item {
 
   function startLoad() {
     var seconds = tune.phase === "soak" ? soakSeconds : stepSeconds
-    loadProcess.command = root.withParent(["deno", "run", "--unstable-webgpu", "--no-check", "--no-prompt", stressPath, String(seconds)])
+    loadProcess.command = root.withParent(["deno", "run", "-A", "--unstable-webgpu", "--no-check", "--no-prompt", stressPath, String(seconds)])
     loadProcess.running = true
     stepWatchdog.interval = (seconds + 60) * 1000
     stepWatchdog.restart()
@@ -677,8 +678,11 @@ Item {
   }
 
   Component.onCompleted: {
+    SharedService.set(root)
     if (stateFile.text().trim() === "efficiency") wanted = "efficiency"
     slots = Model.parseSlots(slotsFile.text())
     restoreTuning()
   }
+
+  Component.onDestruction: SharedService.clear(root)
 }
