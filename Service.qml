@@ -46,6 +46,8 @@ Item {
   // tuned is the saved result; tune is the run in progress, or the last one.
   property var tuned: null
   property var tune: null
+  // Quick slots: saved tuned results, applied with one click. See Model.parseSlots.
+  property var slots: Model.parseSlots("")
   property bool tuning: false
   property bool loadToolReady: false
   property string deviceFingerprint: ""
@@ -207,6 +209,33 @@ Item {
   function saveTuned(result) {
     tuned = result
     tunedFile.setText(JSON.stringify(result))
+  }
+
+  function slotUsable(slot) {
+    return Model.tunedUsable(slot, gpuId, deviceFingerprint)
+  }
+
+  // index is 0-based here and 1-based for people (the panel and IPC).
+  function saveSlot(index) {
+    if (tuning || index < 0 || index >= Model.SLOT_COUNT) return
+    lastError = ""
+    if (!tunedValid) { lastError = "No tune to save yet. Tune for this GPU first."; return }
+    slots = Model.withSlot(slots, index, tuned)
+    slotsFile.setText(JSON.stringify(slots))
+    notice = "Saved slot " + (index + 1) + ": " + Model.kneeText(tuned) + "."
+  }
+
+  // Makes the slot the current tune and switches Efficiency on. reconcile() swaps
+  // the hold, so the profile is still only edited while no hold exists.
+  function applySlot(index) {
+    if (tuning || phase !== "ready" || stats === null || index < 0 || index >= Model.SLOT_COUNT) return
+    var slot = slots[index]
+    if (slot === null) return
+    lastError = ""
+    if (!slotUsable(slot)) { lastError = "Slot " + (index + 1) + " was tuned on another GPU, driver or vBIOS."; return }
+    saveTuned(Model.copy(slot))
+    setProfile("efficiency")
+    notice = "Applied slot " + (index + 1) + ": " + Model.kneeText(tuned) + "."
   }
 
   function saveTune(running) {
@@ -592,6 +621,13 @@ Item {
     printErrors: false
   }
 
+  FileView {
+    id: slotsFile
+    path: root.stateDir + "/slots.json"
+    blockLoading: true
+    printErrors: false
+  }
+
   // Holds the boot id while a tuned profile is applied, so the next boot knows
   // whether the tuned profile was live when that session ended. See markTunedLive().
   FileView {
@@ -636,10 +672,13 @@ Item {
     function toggle(): void { root.toggleProfile() }
     function tune(): void { root.startTune() }
     function stopTune(): void { root.stopTune("Cancelled") }
+    function saveSlot(slot: int): void { root.saveSlot(slot - 1) }
+    function applySlot(slot: int): void { root.applySlot(slot - 1) }
   }
 
   Component.onCompleted: {
     if (stateFile.text().trim() === "efficiency") wanted = "efficiency"
+    slots = Model.parseSlots(slotsFile.text())
     restoreTuning()
   }
 }

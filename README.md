@@ -35,7 +35,7 @@ The GPU returns to Stock as soon as the plugin unloads. Your settings and the LA
 packages stay behind, so a reinstall keeps your tuning result. To remove those too:
 
 ```bash
-rm -rf ~/.local/state/gpu-undervolt     # saved profile choice and tuning result
+rm -rf ~/.local/state/gpu-undervolt     # profile choice, tuning result and tune slots
 ```
 
 LACT keeps an unused profile named `gpu-undervolt-efficiency`, which you can delete
@@ -51,8 +51,12 @@ sudo pacman -Rns lact deno
 - Left click opens the panel, right click toggles the profile.
 - **Tune for this GPU** in the panel finds your card's undervolt. It takes up to
   about 13 minutes at full GPU load. Save your work first.
+- **Tune slots** in the panel keep up to four tunes. Right-click a slot to save the
+  current tune in it, click a slot to apply its tune and switch Efficiency on. A
+  slot saved on another GPU, driver or vBIOS is shown dimmed and is not applied.
 - From a keybinding or script: `omarchy-shell gpu-undervolt.profile toggle`, or
-  `set stock`, `set efficiency`, `get`, `tune`, `stopTune`.
+  `set stock`, `set efficiency`, `get`, `tune`, `stopTune`, `saveSlot 1` to `4`,
+  `applySlot 1` to `4`.
 
 ## Dependencies and privileges
 

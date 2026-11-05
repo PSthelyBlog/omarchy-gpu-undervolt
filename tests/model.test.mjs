@@ -477,3 +477,44 @@ test("tuneOutcome tells the user what happened, in clock and voltage", () => {
   assert.equal(Model.tuneStepLabel({ ...start(), phase: "climb", offset: 60 }), "Testing 2595 MHz at 965 mV")
   assert.equal(Model.stepDownNotice({ capMhz: 2730, targetMv: 965 }), "Lowered to 2730 MHz at 965 mV.")
 })
+
+const slotTune = {
+  gpuId: "gpu", fingerprint: "nvidia 615.78.08|95.03", targetMv: 970, baseClock: 2550, offset: 210, capMhz: 2760,
+  baseline: { score: 601859, watts: 196.6 }, tuned: { score: 608288, watts: 148.1 }, unverified: false, stepDowns: 0,
+}
+
+test("parseSlots always gives four slots and drops anything that is not a tune", () => {
+  assert.deepEqual(plain(Model.parseSlots("")), [null, null, null, null])
+  assert.deepEqual(plain(Model.parseSlots("not json")), [null, null, null, null])
+  assert.deepEqual(plain(Model.parseSlots('{"capMhz": 2760}')), [null, null, null, null])
+  const parsed = Model.parseSlots(JSON.stringify([slotTune, "junk", { capMhz: "2760" }, null, slotTune]))
+  assert.equal(parsed.length, 4)
+  assert.equal(parsed[0].capMhz, 2760)
+  assert.deepEqual(plain(parsed.slice(1)), [null, null, null])
+})
+
+test("withSlot stores a copy, so later step-downs leave the slot as saved", () => {
+  const slots = Model.parseSlots("")
+  const tuned = { ...slotTune }
+  const next = Model.withSlot(slots, 2, tuned)
+  assert.equal(slots[2], null, "the old list is not changed")
+  assert.equal(Model.stepDown(next[2]).capMhz, 2745)
+  tuned.capMhz = 1
+  assert.equal(next[2].capMhz, 2760)
+})
+
+test("sameTune matches the operating point on the same card and driver", () => {
+  assert.equal(Model.sameTune(slotTune, { ...slotTune, savedAt: "later", stepDowns: 3 }), true)
+  assert.equal(Model.sameTune(slotTune, Model.stepDown(slotTune)), false)
+  assert.equal(Model.sameTune(slotTune, { ...slotTune, fingerprint: "nvidia 620.00.00|95.03" }), false)
+  assert.equal(Model.sameTune(slotTune, null), false)
+})
+
+test("slot labels and tooltips say what a click and a right-click do", () => {
+  assert.equal(Model.slotLabel(null), "Empty")
+  assert.equal(Model.slotLabel(slotTune), "2760 MHz")
+  assert.equal(Model.slotTooltip(0, null, false), "Slot 1 is empty. Right-click to save the current tune here.")
+  assert.equal(Model.slotTooltip(1, slotTune, true),
+    "Slot 2: 2760 MHz at 970 mV: −25% power, +1% speed at full load. Click to apply, right-click to replace it with the current tune.")
+  assert.match(Model.slotTooltip(3, slotTune, false), /^Slot 4: 2760 MHz at 970 mV, tuned on another GPU, driver or vBIOS\./)
+})

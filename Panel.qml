@@ -410,6 +410,57 @@ Panel {
           }
         }
 
+        // Shown once there is a tune to save or a slot to apply.
+        Column {
+          visible: root.ready && root.canTune && root.service !== null
+            && (root.service.tuned !== null || root.service.slots.some(function(slot) { return slot !== null }))
+          width: parent.width
+          spacing: Style.space(6)
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "Tune slots: click to apply, right-click to save the current tune"
+            color: root.bar.foreground
+            opacity: 0.6
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+
+          Row {
+            id: slotRow
+            width: parent.width
+            spacing: Style.space(6)
+
+            readonly property real cellWidth: (width - spacing * (Model.SLOT_COUNT - 1)) / Model.SLOT_COUNT
+
+            Repeater {
+              model: Model.SLOT_COUNT
+
+              Button {
+                required property int index
+                readonly property var slot: root.service ? root.service.slots[index] : null
+                readonly property bool usable: slot !== null && root.service.slotUsable(slot)
+
+                width: slotRow.cellWidth
+                text: Model.slotLabel(slot)
+                fontSize: Style.font.bodySmall
+                foreground: root.bar.foreground
+                fontFamily: root.bar.fontFamily
+                bordered: true
+                // Lit while this slot's tune is the one applied.
+                active: usable && root.service.appliedTuned && Model.sameTune(slot, root.service.tuned)
+                opacity: slot === null || usable ? 1 : 0.5
+                enabled: !root.tuning
+                tooltipText: Model.slotTooltip(index, slot, usable)
+                onClicked: root.service.applySlot(index)
+                onRightClicked: root.service.saveSlot(index)
+              }
+            }
+          }
+        }
+
         Text {
           visible: root.notice !== ""
           width: parent.width

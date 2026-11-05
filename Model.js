@@ -608,3 +608,41 @@ function tuneOutcome(tune) {
 function stepDownNotice(tuned) {
   return "Lowered to " + kneeText(tuned) + "."
 }
+
+// Quick slots: snapshots of tuned results, saved and applied from the panel. Each
+// keeps its fingerprint, so a slot from another driver is never applied.
+var SLOT_COUNT = 4
+
+function parseSlots(text) {
+  var parsed = parseJson(text)
+  var list = Array.isArray(parsed) ? parsed : []
+  var slots = []
+  for (var i = 0; i < SLOT_COUNT; i++) {
+    var slot = list[i]
+    slots.push(slot && typeof slot === "object" && typeof slot.capMhz === "number" ? slot : null)
+  }
+  return slots
+}
+
+function withSlot(slots, index, tuned) {
+  var next = slots.slice()
+  next[index] = copy(tuned)
+  return next
+}
+
+// Whether two results run the same operating point on the same card and driver.
+function sameTune(a, b) {
+  return !!a && !!b && a.gpuId === b.gpuId && a.fingerprint === b.fingerprint &&
+    a.targetMv === b.targetMv && a.offset === b.offset && a.capMhz === b.capMhz
+}
+
+function slotLabel(slot) {
+  return slot ? slot.capMhz + " MHz" : "Empty"
+}
+
+function slotTooltip(index, slot, usable) {
+  var name = "Slot " + (index + 1)
+  if (!slot) return name + " is empty. Right-click to save the current tune here."
+  if (!usable) return name + ": " + kneeText(slot) + ", tuned on another GPU, driver or vBIOS. Right-click to replace it."
+  return name + ": " + tunedSummary(slot) + ". Click to apply, right-click to replace it with the current tune."
+}

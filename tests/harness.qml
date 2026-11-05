@@ -36,6 +36,7 @@ ShellRoot {
         tuneOffset: service.tune ? service.tune.offset : null,
         tunedOffset: service.tuned ? service.tuned.offset : null,
         tunedValid: service.tunedValid,
+        slots: service.slots.map(function(slot) { return slot ? slot.capMhz : null }),
         canTune: service.canTune,
         loadTool: service.loadToolReady,
         healthChecked: service.healthChecked
@@ -53,5 +54,7 @@ ShellRoot {
     function fast(): void { service.keepFast() }
     function tune(): void { service.startTune() }
     function stop(): void { service.stopTune("Cancelled") }
+    function saveSlot(slot: int): void { service.saveSlot(slot - 1) }
+    function applySlot(slot: int): void { service.applySlot(slot - 1) }
   }
 }

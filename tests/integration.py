@@ -268,6 +268,10 @@ def tuner_flow(h, state_file):
     assert active_boot.read_text().split()[0] == boot_id
     print("ok   the tuned hold records the boot it is live in")
 
+    h.call("saveSlot", "1")
+    h.wait("the current tune saves to a slot", lambda s: s.get("slots", [None])[0] == saved["capMhz"])
+    assert json.loads((h.state_dir / "gpu-undervolt/slots.json").read_text())[0]["offset"] == 30
+
     xid_at = time.time()
     (h.fake_dir / "kernel.log").open("a").write("NVRM: Xid (PCI:0000:01:00): 13\n")
     h.wait("a GPU error in normal use steps the undervolt down", lambda s: s.get("tunedOffset") == 15)
@@ -332,9 +336,38 @@ def tuner_flow(h, state_file):
     h.wait("after a driver change Efficiency falls back to the safe cap",
            lambda s: s.get("applied", "").endswith("MHz cap") and not s.get("tunedValid"))
 
+    slot_flow(h, saved)
+
     violations = [line for line in h.mock_log if "VIOLATION" in line]
     assert not violations, violations
     print("ok   no profile was ever edited during a hold")
+
+
+
+def slot_flow(h, saved):
+    """Slot 1 was saved several shell restarts ago; the current tune is now stale."""
+    idle = lambda s: not s.get("tuning") and not s.get("busy")
+    assert h.state["slots"][0] == saved["capMhz"], "slots survive restarts"
+    h.call("saveSlot", "2")
+    h.wait("a tune from another driver is not saved to a slot",
+           lambda s: s.get("error", "").startswith("No tune to save"))
+    assert h.state["slots"][1] is None, h.state
+
+    h.call("set", "stock")
+    h.wait("Stock before applying a slot", lambda s: s.get("active") == "stock" and idle(s))
+    h.mock_log.clear()
+    h.call("applySlot", "1")
+    h.wait("applying a slot restores its tune and switches Efficiency on",
+           lambda s: s.get("active") == "efficiency" and s.get("applied") == "Tuned" and s.get("tunedValid") and idle(s))
+    assert h.state["tunedOffset"] == saved["offset"], h.state
+    assert h.tuned()["capMhz"] == saved["capMhz"]
+    applied = [line for line in h.mock_log if "<- create_profile" in line]
+    assert applied and f"'max_core_clock': {saved['capMhz']}" in applied[-1], applied
+    print("ok   the slot's clock cap is what LACT was given")
+
+    h.call("applySlot", "3")
+    time.sleep(0.5)
+    assert h.state["active"] == "efficiency" and h.state["error"] == "", "an empty slot changes nothing"
 
 
 if __name__ == "__main__":
