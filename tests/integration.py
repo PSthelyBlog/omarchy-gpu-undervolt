@@ -23,7 +23,9 @@ STEP_SECONDS = 8
 
 # Each load pops one scenario line: "<score> <exit code> [xid]". "hang" never ends.
 FAKE_DENO = r"""#!/bin/bash
-seconds="${@: -1}"
+echo "$*" > "$FAKE_DIR/deno-args"
+args=("$@")
+for i in "${!args[@]}"; do [[ ${args[i]} == *stress.ts ]] && seconds=${args[i+1]}; done
 line=$(head -n1 "$FAKE_DIR/scenario" 2>/dev/null)
 sed -i 1d "$FAKE_DIR/scenario" 2>/dev/null
 read -r score code xid <<<"$line"
@@ -65,7 +67,7 @@ class Harness:
                              ("omarchy-notification-send", FAKE_NOTIFY)):
             (self.bin_dir / name).write_text(script)
             (self.bin_dir / name).chmod(0o755)
-        for name in ("Service.qml", "LactClient.qml", "Model.js", "stress.ts"):
+        for name in ("Service.qml", "LactClient.qml", "Model.js", "SharedService.js", "stress.ts", "stress.cu"):
             shutil.copy(ROOT / name, self.shell_dir / name)
         shutil.copy(ROOT / "tests/harness.qml", self.shell_dir / "shell.qml")
         self.env = {
@@ -263,6 +265,10 @@ def tuner_flow(h, state_file):
     assert state_file.read_text().strip() == "efficiency"
     assert "Tuned to 2565 MHz at 965 mV" in h.notifications(), h.notifications()
     print("ok   result saved with its measured cost:", saved["capMhz"], "MHz")
+    deno_args = (h.fake_dir / "deno-args").read_text().split()
+    assert "-A" not in deno_args and not any(a.startswith(("--allow-all", "--allow-net", "--allow-env", "--allow-ffi")) for a in deno_args), deno_args
+    assert "--allow-run=setpriv,nvcc,/opt/cuda/bin/nvcc" in deno_args, deno_args
+    print("ok   the stress load gets only the CUDA fallback's permissions")
     boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
     active_boot = h.state_dir / "gpu-undervolt/active-boot"
     assert active_boot.read_text().split()[0] == boot_id

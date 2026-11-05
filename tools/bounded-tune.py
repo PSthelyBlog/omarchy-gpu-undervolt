@@ -28,7 +28,7 @@ def main():
         tmp = Path(tmp)
         for name in ("run", "state", "shell", "bin"):
             (tmp / name).mkdir(mode=0o700)
-        for name in ("Service.qml", "LactClient.qml", "Model.js", "stress.ts"):
+        for name in ("Service.qml", "LactClient.qml", "Model.js", "SharedService.js", "stress.ts", "stress.cu"):
             shutil.copy(ROOT / name, tmp / "shell" / name)
         shutil.copy(ROOT / "tests/harness.qml", tmp / "shell/shell.qml")
         notifier = tmp / "bin/omarchy-notification-send"

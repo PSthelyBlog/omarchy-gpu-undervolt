@@ -64,6 +64,8 @@ Item {
     return ["/run/lactd.sock", Quickshell.env("XDG_RUNTIME_DIR") + "/lactd.sock"]
   }
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/gpu-undervolt"
+  // Where stress.ts keeps its CUDA build, for GPUs WebGPU cannot set up on.
+  readonly property string cacheDir: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/gpu-undervolt"
   readonly property string pciAddress: Model.pciAddress(gpuId)
 
   property int connectAttempts: 0
@@ -87,6 +89,7 @@ Item {
   property string stopReason: ""
 
   readonly property string stressPath: String(Qt.resolvedUrl("stress.ts")).replace("file://", "")
+  readonly property string cudaSourcePath: String(Qt.resolvedUrl("stress.cu")).replace("file://", "")
   // Tests shorten these. The offset limit also bounds a run on real hardware.
   readonly property int stepSeconds: envNumber("GPU_UNDERVOLT_STEP_SECONDS", Model.TUNE_STEP_SECONDS)
   readonly property int soakSeconds: envNumber("GPU_UNDERVOLT_SOAK_SECONDS", Model.TUNE_SOAK_SECONDS)
@@ -265,7 +268,7 @@ Item {
     notice = ""
     if (!loadToolReady) { lastError = "Tuning needs Deno. Use Set up tuning."; return }
     if (UPower.onBattery) { lastError = "Plug in before tuning."; return }
-    if (stats.loadPercent !== null && stats.loadPercent > 60) { lastError = "Close GPU-heavy apps before tuning."; return }
+    if (stats.loadPercent !== null && stats.loadPercent > 30) { lastError = "Close GPU-heavy apps before tuning."; return }
     tune = Model.tunerStart(clocks.points, gpuId, deviceFingerprint, {
       stepSeconds: stepSeconds, soakSeconds: soakSeconds, maxOffset: maxOffset
     })
@@ -295,7 +298,11 @@ Item {
 
   function startLoad() {
     var seconds = tune.phase === "soak" ? soakSeconds : stepSeconds
-    loadProcess.command = root.withParent(["deno", "run", "-A", "--unstable-webgpu", "--no-check", "--no-prompt", stressPath, String(seconds)])
+    // The only permissions are the CUDA fallback's: read its source and cache,
+    // write the cache, and run the compiler and the built load.
+    loadProcess.command = root.withParent(["deno", "run", "--quiet", "--unstable-webgpu", "--no-check", "--no-prompt",
+      "--allow-read=" + cudaSourcePath + "," + cacheDir, "--allow-write=" + cacheDir,
+      "--allow-run=setpriv,nvcc,/opt/cuda/bin/nvcc", stressPath, String(seconds), cacheDir])
     loadProcess.running = true
     stepWatchdog.interval = (seconds + 60) * 1000
     stepWatchdog.restart()
