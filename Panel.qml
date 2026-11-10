@@ -4,6 +4,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
+import "SharedService.js" as SharedService
 
 Panel {
   id: root
@@ -59,6 +60,7 @@ Panel {
 
   function resolveService() {
     var found = bar && bar.shell ? bar.shell.serviceFor("io.github.psthelyblog.gpu-undervolt") : null
+    if (!found) found = SharedService.get()
     if (found) service = found
   }
 
